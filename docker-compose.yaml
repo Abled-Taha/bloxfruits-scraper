@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  web:
+    build: .
+    container_name: bloxfruits-scraper
+    ports:
+      - "8449:5000"
+    environment:
+      - DEBUG=${DEBUG}
+    restart: unless-stopped
