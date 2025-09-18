@@ -5,13 +5,13 @@ from typing import Dict, List, Any, Tuple
 
 URL_VALUES = "https://fruityblox.com/blox-fruits-value-list/"
 
-CARD_SELECTOR = "div.p-4.border.border-secondary.rounded-lg"
+VALUES_CARD_SELECTOR = "div.p-4.border.border-secondary.rounded-lg"
 VALUE_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*([kmbKMB])\b")
 
 SUFFIX_MULTIPLIERS = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
 
-def fetch_soup() -> BeautifulSoup:
-    resp = requests.get(URL_VALUES, timeout=20)
+def fetch_soup(url: str) -> BeautifulSoup:
+    resp = requests.get(url, timeout=20)
     resp.raise_for_status()
     return BeautifulSoup(resp.content, "html.parser")
 
@@ -47,8 +47,8 @@ def classify(card_text: str) -> str:
         return "special"
     return "fruits"
 
-def extract_cards(soup: BeautifulSoup):
-    cards = soup.select(CARD_SELECTOR)
+def extract_value_cards(soup: BeautifulSoup):
+    cards = soup.select(VALUES_CARD_SELECTOR)
     results = []
     for c in cards:
         text = normalize_whitespace(c.get_text(separator="\n"))
@@ -94,10 +94,10 @@ def looks_like_header(item_name: str) -> bool:
     )
 
 def get_fruits() -> Dict[str, Any]:
-    soup = fetch_soup()
+    soup = fetch_soup(URL_VALUES)
     buckets = {"fruits": [], "gamepasses": [], "special": []}
 
-    for category, name, values in extract_cards(soup):
+    for category, name, values in extract_value_cards(soup):
         name = clean_name(name, category)
         item = {"name": name, "values": values}
 
@@ -119,5 +119,4 @@ def get_fruits() -> Dict[str, Any]:
     # Extra safety: ensure no lingering header entries
     result["fruits"] = [f for f in result["fruits"] if not looks_like_header(f["name"])]
     result["gamepasses"] = [g for g in result["gamepasses"] if not looks_like_header(g["name"])]
-
     return result

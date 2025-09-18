@@ -3,7 +3,7 @@ from flask_cors import CORS
 import os
 from .fruits_scraper import get_fruits
 from .stock_scraper import get_stock_all
-from .manager import read_file, write_file, check_file_validity
+from .manager import read_file, write_file, check_file_validity, write_fruits_info_file
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "https://bfft.app.abledtaha.online"]}})
@@ -37,4 +37,14 @@ def stock():
             index += 1
     elif debug:
         return get_stock_all()
+    return {"error": "Failed to fetch data after multiple attempts."}, 500
+
+@app.route("/info")
+def info():
+    index = 0
+    while index != 3:
+        if check_file_validity("storage/info.json", 86400):
+            return read_file("storage/info.json")
+        write_fruits_info_file()
+        index += 1
     return {"error": "Failed to fetch data after multiple attempts."}, 500
