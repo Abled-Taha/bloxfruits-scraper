@@ -34,7 +34,7 @@ def write_file(FILE:str, data: Dict[str, Any]) -> None:
     except IOError as e:
         print(f"Error writing to {FILE}: {e}")
         
-def check_file_validity(FILE:str) -> bool:
+def check_file_validity(FILE:str, seconds:int=7200) -> bool:
     """
     Check when the file was last modified.
     Returns True if modified within the last 2 hours and not an empty object, False otherwise.
@@ -45,8 +45,8 @@ def check_file_validity(FILE:str) -> bool:
     try:
         mod_time = os.path.getmtime(FILE)
         current_time = time.time()
-        # Check if modified within the last 2 hours (7200 seconds)
-        return (current_time - mod_time) < 7200 and os.path.getsize(FILE) > 2  # not empty {}
+        # Check if modified within the last 2 hours (7200 seconds) / given time
+        return (current_time - mod_time) < seconds and os.path.getsize(FILE) > 2  # not empty {}
     except FileNotFoundError:
         print(f"Warning: {FILE} not found.")
         return False

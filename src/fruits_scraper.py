@@ -10,8 +10,8 @@ VALUE_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*([kmbKMB])\b")
 
 SUFFIX_MULTIPLIERS = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
 
-def fetch_soup(url: str) -> BeautifulSoup:
-    resp = requests.get(url, timeout=20)
+def fetch_soup() -> BeautifulSoup:
+    resp = requests.get(URL_VALUES, timeout=20)
     resp.raise_for_status()
     return BeautifulSoup(resp.content, "html.parser")
 
@@ -94,7 +94,7 @@ def looks_like_header(item_name: str) -> bool:
     )
 
 def get_fruits() -> Dict[str, Any]:
-    soup = fetch_soup(URL_VALUES)
+    soup = fetch_soup()
     buckets = {"fruits": [], "gamepasses": [], "special": []}
 
     for category, name, values in extract_cards(soup):
