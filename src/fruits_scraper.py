@@ -95,7 +95,7 @@ def looks_like_header(item_name: str) -> bool:
 
 def get_fruits() -> Dict[str, Any]:
     soup = fetch_soup(URL_VALUES)
-    buckets = {"fruits": [], "gamepasses": [], "special": []}
+    buckets = {"fruits": [], "gamepasses": [], "special": [], "skins": []}
 
     for category, name, values in extract_value_cards(soup):
         name = clean_name(name, category)
@@ -107,10 +107,9 @@ def get_fruits() -> Dict[str, Any]:
         # Drop items with no values (these are usually UI/helper cards)
         if not values:
             continue
-        # We still collect to buckets; we'll remove 'special' before returning
+        # We still collect to buckets, but only return fruits/gamepasses
         buckets.setdefault(category, []).append(item)
 
-    # --- Remove 'special' entirely ---
     result = {
         "fruits": buckets.get("fruits", []),
         "gamepasses": buckets.get("gamepasses", []),
