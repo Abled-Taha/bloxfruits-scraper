@@ -1,32 +1,43 @@
-import json, re
+import os
+import json
+import re
 from collections import OrderedDict, Counter
 from statistics import mean
 
 import requests
+
+# Local imports
 from .stock_scraper import get_stock_all
 from .fruits_scraper_fruity import get_fruits as get_fruits_fruity
 from .fruits_scraper_bfv import get_fruits as get_fruits_bfv
 
-data_fruity = get_fruits_fruity()
-data_fruity_fruits = data_fruity["fruits"]; data_fruity_fruits.pop(len(data_fruity["fruits"]) - 1)
-data_fruity_gamepasses = data_fruity["gamepasses"]
+# -----------------------------------------------------------------------------
+# Configuration & small helpers
+# -----------------------------------------------------------------------------
 
-data_bfv = get_fruits_bfv()
-data_bfv_fruits = data_bfv["fruits"]
-data_bfv_gamepasses = data_bfv["gamepasses"]
-data_bfv_limiteds = data_bfv["extra"]
-# Split BFV "extra" into skins & specials
-data_bfv_skins = data_bfv_limiteds.copy(); data_bfv_skins[:] = [s for s in data_bfv_skins if "Dragon Token" not in s["name"]]
-data_bfv_specials = data_bfv_limiteds.copy(); data_bfv_specials[:] = [s for s in data_bfv_specials if "Dragon Token" in s["name"]]
+REFRESH_BASE = os.environ.get("REFRESH_BASE", "https://bfscraper.app.abledtaha.online")
+STORAGE_DIR = "storage"
 
 result = {
-  "stock": "",
-  "fruits": "",
-  "gamepasses": "",
-  "specials": "",
+    "stock": "",
+    "fruits": "",
+    "gamepasses": "",
+    "specials": "",
 }
 
-# -------------------- small helpers --------------------
+def _get_nested(vals, idx, key, default=None):
+    """Safely get vals[idx][key] with a default."""
+    try:
+        return vals[idx].get(key, default)
+    except Exception:
+        return default
+
+def _load_json_safe(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
 
 def normalize_name(name: str) -> str:
     return re.sub(r'[^a-z]+', '', (name or '').lower())
@@ -68,7 +79,33 @@ def to_int_loose(x):
         except: return 0
     return 0
 
-# -------------------- gamepasses merge --------------------
+# -----------------------------------------------------------------------------
+# Safe fetchers (avoid module-level scraping on cold start)
+# -----------------------------------------------------------------------------
+
+def _safe_fruity():
+    """Return (fruits, gamepasses) from fruity scraper, or empty on failure."""
+    try:
+        d = get_fruits_fruity() or {}
+        fruits = d.get("fruits") or []
+        # In original code the last item was popped (likely a summary row)
+        if fruits:
+            fruits = fruits[:-1]  # drop last element defensively
+        return fruits, (d.get("gamepasses") or [])
+    except Exception:
+        return [], []
+
+def _safe_bfv():
+    """Return (fruits, gamepasses, extra) from bfv scraper, or empty on failure."""
+    try:
+        d = get_fruits_bfv() or {}
+        return (d.get("fruits") or []), (d.get("gamepasses") or []), (d.get("extra") or [])
+    except Exception:
+        return [], [], []
+
+# -----------------------------------------------------------------------------
+# Gamepasses merge
+# -----------------------------------------------------------------------------
 
 def merge_gamepasses_with_averages(gamepasses):
     merged = OrderedDict()
@@ -118,7 +155,9 @@ def merge_gamepasses_with_averages(gamepasses):
 
     return out
 
-# -------------------- fruits merge --------------------
+# -----------------------------------------------------------------------------
+# Fruits merge
+# -----------------------------------------------------------------------------
 
 def merge_fruits_with_averages(fruits_bfv, fruits_fruity, fruits_info, bfv_skins):
     # simple alias map (extend as needed)
@@ -311,7 +350,7 @@ def merge_fruits_with_averages(fruits_bfv, fruits_fruity, fruits_info, bfv_skins
         # embedded BFV skins under fruit (if any)
         for s in (g.get("skins") or []):
             if not isinstance(s, dict): continue
-            sname = s.get("name"); 
+            sname = s.get("name")
             if not sname: continue
             skey = normalize_name_words(sname)
             agg = b["_skins_map"].setdefault(skey, {
@@ -359,7 +398,7 @@ def merge_fruits_with_averages(fruits_bfv, fruits_fruity, fruits_info, bfv_skins
         info_skins = inf.get("skins") or []
         for s in info_skins:
             if not isinstance(s, dict): continue
-            sname = s.get("name"); 
+            sname = s.get("name")
             if not sname: continue
             skey = normalize_name_words(sname)
             b["_info_skin_keys"].add(skey)
@@ -553,88 +592,128 @@ def merge_fruits_with_averages(fruits_bfv, fruits_fruity, fruits_info, bfv_skins
 
     return out
 
-# -------------------- caching --------------------
+# -----------------------------------------------------------------------------
+# Caching / serialization (defensive)
+# -----------------------------------------------------------------------------
 
-def ready_cache():
-  with open("storage/data_fruity_fruits.json", "w", encoding="utf-8") as f:
-    for fruit in data_fruity_fruits:
-      fruit["regValueNumeric"] = fruit["values"][0]["numeric"]
-      fruit["permValueNumeric"] = fruit["values"][1]["numeric"]
-      fruit["regValueRaw"] = fruit["values"][0]["raw"]
-      fruit["permValueRaw"] = fruit["values"][1]["raw"]
-      fruit.pop("values")
-    json.dump(data_fruity_fruits, f, indent=2, ensure_ascii=False)
-    
-  with open("storage/data_fruity_gamepasses.json", "w", encoding="utf-8") as f:
-    for gamepass in data_fruity_gamepasses:
-      gamepass["regValueNumeric"] = gamepass["values"][0]["numeric"]
-      gamepass["regValueRaw"] = gamepass["values"][0]["raw"]
-      gamepass.pop("values")
-    json.dump(data_fruity_gamepasses, f, indent=2, ensure_ascii=False)
-    
-  with open("storage/data_bfv_fruits.json", "w", encoding="utf-8") as f:
-    for fruit in data_bfv_fruits:
-      fruit.pop("category")
-    json.dump(data_bfv_fruits, f, indent=2, ensure_ascii=False)
-    
-  with open("storage/data_bfv_gamepasses.json", "w", encoding="utf-8") as f:
-    for gamepass in data_bfv_gamepasses:
-      gamepass.pop("category")
-      gamepass.pop("rarity")
-      gamepass.pop("beliPrice")
-      gamepass.pop("fruitType")
-      gamepass.pop("permTrend")
-      gamepass.pop("permValue")
-    json.dump(data_bfv_gamepasses, f, indent=2, ensure_ascii=False)
-    
-  with open("storage/data_bfv_skins.json", "w", encoding="utf-8") as f:
-    for skin in data_bfv_skins:
-      skin.pop("category")
-      skin.pop("rarity")
-      skin.pop("beliPrice")
-      skin.pop("fruitType")
-      skin.pop("permTrend")
-      skin.pop("permValue")
-    json.dump(data_bfv_skins, f, indent=2, ensure_ascii=False)
-    
-  with open("storage/data_bfv_specials.json", "w", encoding="utf-8") as f:
-    for special in data_bfv_specials:
-      special.pop("category")
-      special.pop("rarity")
-      special.pop("beliPrice")
-      special.pop("fruitType")
-      special.pop("permTrend")
-      special.pop("permValue")
-      special.pop("robuxPrice")
-    json.dump(data_bfv_specials, f, indent=2, ensure_ascii=False)
+def ready_cache(data_fruity_fruits, data_fruity_gamepasses, data_bfv_fruits, data_bfv_gamepasses, data_bfv_skins, data_bfv_specials):
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
-# -------------------- main entry --------------------
+    # ---- Fruity fruits: tolerate missing 'values' ----
+    with open(os.path.join(STORAGE_DIR, "data_fruity_fruits.json"), "w", encoding="utf-8") as f:
+        for fruit in (data_fruity_fruits or []):
+            vals = fruit.get("values") or []
+            # keep existing numeric fields if already present; otherwise derive from values[]
+            fruit["regValueNumeric"]  = fruit.get("regValueNumeric",  _get_nested(vals, 0, "numeric", 0))
+            fruit["permValueNumeric"] = fruit.get("permValueNumeric", _get_nested(vals, 1, "numeric", 0))
+            fruit["regValueRaw"]      = fruit.get("regValueRaw",      _get_nested(vals, 0, "raw", ""))
+            fruit["permValueRaw"]     = fruit.get("permValueRaw",     _get_nested(vals, 1, "raw", ""))
+            # remove only if present
+            if "values" in fruit:
+                fruit.pop("values", None)
+        json.dump(data_fruity_fruits, f, indent=2, ensure_ascii=False)
+
+    # ---- Fruity gamepasses ----
+    with open(os.path.join(STORAGE_DIR, "data_fruity_gamepasses.json"), "w", encoding="utf-8") as f:
+        for gamepass in (data_fruity_gamepasses or []):
+            vals = gamepass.get("values") or []
+            gamepass["regValueNumeric"] = gamepass.get("regValueNumeric", _get_nested(vals, 0, "numeric", 0))
+            gamepass["regValueRaw"]     = gamepass.get("regValueRaw",     _get_nested(vals, 0, "raw", ""))
+            if "values" in gamepass:
+                gamepass.pop("values", None)
+        json.dump(data_fruity_gamepasses, f, indent=2, ensure_ascii=False)
+
+    # ---- BFV fruits: pop keys safely ----
+    with open(os.path.join(STORAGE_DIR, "data_bfv_fruits.json"), "w", encoding="utf-8") as f:
+        for fruit in (data_bfv_fruits or []):
+            fruit.pop("category", None)
+        json.dump(data_bfv_fruits, f, indent=2, ensure_ascii=False)
+
+    # ---- BFV gamepasses: pop keys safely ----
+    with open(os.path.join(STORAGE_DIR, "data_bfv_gamepasses.json"), "w", encoding="utf-8") as f:
+        for gamepass in (data_bfv_gamepasses or []):
+            gamepass.pop("category", None)
+            gamepass.pop("rarity", None)
+            gamepass.pop("beliPrice", None)
+            gamepass.pop("fruitType", None)
+            gamepass.pop("permTrend", None)
+            gamepass.pop("permValue", None)
+        json.dump(data_bfv_gamepasses, f, indent=2, ensure_ascii=False)
+
+    # ---- BFV skins: pop keys safely ----
+    with open(os.path.join(STORAGE_DIR, "data_bfv_skins.json"), "w", encoding="utf-8") as f:
+        for skin in (data_bfv_skins or []):
+            skin.pop("category", None)
+            skin.pop("rarity", None)
+            skin.pop("beliPrice", None)
+            skin.pop("fruitType", None)
+            skin.pop("permTrend", None)
+            skin.pop("permValue", None)
+        json.dump(data_bfv_skins, f, indent=2, ensure_ascii=False)
+
+    # ---- BFV specials: pop keys safely ----
+    with open(os.path.join(STORAGE_DIR, "data_bfv_specials.json"), "w", encoding="utf-8") as f:
+        for special in (data_bfv_specials or []):
+            special.pop("category", None)
+            special.pop("rarity", None)
+            special.pop("beliPrice", None)
+            special.pop("fruitType", None)
+            special.pop("permTrend", None)
+            special.pop("permValue", None)
+            special.pop("robuxPrice", None)
+        json.dump(data_bfv_specials, f, indent=2, ensure_ascii=False)
+
+# -----------------------------------------------------------------------------
+# Main entry
+# -----------------------------------------------------------------------------
 
 def get_all():
-  # refresh endpoints to update cache
-  requests.get("http://localhost:5000/fruits").json()
-  requests.get("http://localhost:5000/stock").json()
-  requests.get("http://localhost:5000/info").json()
-  ready_cache()
-  with open("storage/all.json", "w", encoding="utf-8") as f_all, \
-     open("storage/data_fruity_gamepasses.json", "r", encoding="utf-8") as f_fruity_gp, \
-     open("storage/data_bfv_gamepasses.json", "r", encoding="utf-8") as f_bfv_gp, \
-     open("storage/data_fruity_fruits.json", "r", encoding="utf-8") as f_fruity_fr, \
-     open("storage/data_bfv_fruits.json", "r", encoding="utf-8") as f_bfv_fr, \
-     open("storage/info.json", "r", encoding="utf-8") as f_info, \
-     open("storage/data_bfv_skins.json", "r", encoding="utf-8") as f_bfv_skins:
+    # Best-effort refresh of dependent endpoints (works locally; configurable in prod)
+    for path in ("fruits", "stock", "info"):
+        try:
+            requests.get(f"{REFRESH_BASE}/{path}", timeout=5)
+        except Exception:
+            pass
 
-    gamepasses_from_fruity = json.load(f_fruity_gp)
-    gamepasses_from_bfv = json.load(f_bfv_gp)
-    fruits_from_fruity = json.load(f_fruity_fr)
-    fruits_from_bfv = json.load(f_bfv_fr)
-    info_fruits = json.load(f_info)
-    bfv_skins = json.load(f_bfv_skins)
+    # Pull fresh data each call (avoid poisoning global state on cold start)
+    fruity_fruits, fruity_gamepasses = _safe_fruity()
+    bfv_fruits, bfv_gamepasses, bfv_extra = _safe_bfv()
 
-    result["stock"] = get_stock_all()
-    result["specials"] = data_bfv_specials
-    result["gamepasses"] = merge_gamepasses_with_averages(gamepasses_from_fruity + gamepasses_from_bfv)
-    result["fruits"] = merge_fruits_with_averages(fruits_from_bfv, fruits_from_fruity, info_fruits, bfv_skins)
+    # Split BFV "extra" into skins & specials robustly
+    data_bfv_skins = [s for s in (bfv_extra or []) if "Dragon Token" not in (s.get("name") or "")]
+    data_bfv_specials = [s for s in (bfv_extra or []) if "Dragon Token" in (s.get("name") or "")]
 
-    json.dump(result, f_all, indent=2, ensure_ascii=False)
-    return result
+    # Prepare cache files
+    ready_cache(
+        data_fruity_fruits=fruity_fruits,
+        data_fruity_gamepasses=fruity_gamepasses,
+        data_bfv_fruits=bfv_fruits,
+        data_bfv_gamepasses=bfv_gamepasses,
+        data_bfv_skins=data_bfv_skins,
+        data_bfv_specials=data_bfv_specials,
+    )
+
+    # Load back the normalized cache + info.json
+    with open(os.path.join(STORAGE_DIR, "all.json"), "w", encoding="utf-8") as f_all, \
+         open(os.path.join(STORAGE_DIR, "data_fruity_gamepasses.json"), "r", encoding="utf-8") as f_fruity_gp, \
+         open(os.path.join(STORAGE_DIR, "data_bfv_gamepasses.json"), "r", encoding="utf-8") as f_bfv_gp, \
+         open(os.path.join(STORAGE_DIR, "data_fruity_fruits.json"), "r", encoding="utf-8") as f_fruity_fr, \
+         open(os.path.join(STORAGE_DIR, "data_bfv_fruits.json"), "r", encoding="utf-8") as f_bfv_fr, \
+         open(os.path.join(STORAGE_DIR, "data_bfv_skins.json"), "r", encoding="utf-8") as f_bfv_skins:
+
+        gamepasses_from_fruity = json.load(f_fruity_gp)
+        gamepasses_from_bfv    = json.load(f_bfv_gp)
+        fruits_from_fruity     = json.load(f_fruity_fr)
+        fruits_from_bfv        = json.load(f_bfv_fr)
+        bfv_skins              = json.load(f_bfv_skins)
+
+        # info.json may not exist on a pristine deploy; tolerate missing
+        info_fruits = _load_json_safe(os.path.join(STORAGE_DIR, "info.json"), default=[])
+
+        result["stock"]      = get_stock_all()
+        result["specials"]   = data_bfv_specials
+        result["gamepasses"] = merge_gamepasses_with_averages(gamepasses_from_fruity + gamepasses_from_bfv)
+        result["fruits"]     = merge_fruits_with_averages(fruits_from_bfv, fruits_from_fruity, info_fruits, bfv_skins)
+
+        json.dump(result, f_all, indent=2, ensure_ascii=False)
+        return result
