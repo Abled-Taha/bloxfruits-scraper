@@ -1,7 +1,7 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 
 URL_VALUES = "https://fruityblox.com/blox-fruits-value-list/"
 
