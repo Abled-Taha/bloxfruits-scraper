@@ -250,10 +250,10 @@ def get_stock_all() -> Dict[str, List[Dict[str, str]]]:
     mirage_items = []
 
     for name in state.get("normal", []):
-        normal_items.append({"name": name})
+        normal_items.append(name)
 
     for name in state.get("mirage", []):
-        mirage_items.append({"name": name})
+        mirage_items.append(name)
 
     return {"normal": normal_items, "mirage": mirage_items}
 
